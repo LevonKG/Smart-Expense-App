@@ -1,0 +1,14 @@
+# --- API (Python) ---
+api/venv/
+api/__pycache__/
+*.pyc
+.env
+
+# --- Mobile (Node/Expo) ---
+mobile/node_modules/
+mobile/.expo/
+*.log
+
+# --- Sistema Operativo ---
+.DS_Store
+Thumbs.db
