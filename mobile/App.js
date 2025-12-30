@@ -8,55 +8,81 @@ import {
   TouchableOpacity, 
   Alert, 
   KeyboardAvoidingView, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import axios from 'axios';
 
 export default function App() {
   // --- CONFIGURACIÓN ---
-  // IMPORTANTE: Pon aquí tu IP Local (la misma que usaste antes)
   const API_URL = "http://192.168.1.37:8000"; 
 
-  // --- ESTADO DEL FORMULARIO ---
+  // --- ESTADO ---
+  // Input para la IA
+  const [naturalText, setNaturalText] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Inputs del Formulario Final
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- FUNCIÓN PARA GUARDAR ---
+  // --- FUNCIÓN: MAGIA IA ---
+  const handleAnalyze = async () => {
+    if (!naturalText.trim()) return;
+
+    setIsAnalyzing(true);
+    try {
+      console.log("Enviando a IA:", naturalText);
+      const response = await axios.post(`${API_URL}/analyze/`, {
+        text: naturalText
+      });
+
+      const data = response.data;
+      console.log("Respuesta IA:", data);
+
+      if (data.amount) setAmount(data.amount.toString());
+      if (data.category) setCategory(data.category);
+      if (data.description) setDescription(data.description);
+
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error IA", "No pude entender el gasto via red.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // --- FUNCIÓN: GUARDAR EN BASE DE DATOS ---
   const handleSave = async () => {
-    // 1. Validaciones básicas
     if (!amount || !category) {
-      Alert.alert("Error", "Por favor ingresa cantidad y categoría");
+      Alert.alert("Faltan datos", "Revisa que haya cantidad y categoría");
       return;
     }
 
     setLoading(true);
-
     try {
-      // 2. Preparar los datos (coincidiendo con schemas.py del backend)
       const expenseData = {
-        amount: parseFloat(amount), // Convertir texto a número
+        amount: parseFloat(amount),
         category: category,
         description: description,
-        user_id: "usuario_prueba_movil", // Hardcodeado por ahora (Fase 1)
-        receipt_url: null // Aún no enviamos fotos
+        user_id: "usuario_demo_ia",
+        receipt_url: null
       };
 
-      // 3. Enviar al Backend
       const response = await axios.post(`${API_URL}/expenses/`, expenseData);
-
-      // 4. Éxito
-      Alert.alert("¡Guardado! ✅", `Gasto registrado con ID: ${response.data.id}`);
       
-      // Limpiar formulario
+      Alert.alert("¡Guardado! ✅", `ID: ${response.data.id} guardado en la nube.`);
+      
+      setNaturalText('');
       setAmount('');
       setCategory('');
       setDescription('');
 
     } catch (error) {
       console.error(error);
-      Alert.alert("Error ❌", "No se pudo guardar el gasto. Revisa la consola.");
+      Alert.alert("Error", "Fallo al guardar en Supabase");
     } finally {
       setLoading(false);
     }
@@ -67,108 +93,187 @@ export default function App() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.container}
     >
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Nuevo Gasto 💸</Text>
+      <View style={styles.card}>
+        <Text style={styles.headerTitle}>Smart Expense 🧠</Text>
 
-        {/* INPUT: CANTIDAD */}
-        <Text style={styles.label}>Cantidad (€)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="0.00"
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-        />
+        {/* --- SECCIÓN IA --- */}
+        <View style={styles.aiSection}>
+          <Text style={styles.sectionLabel}>✨ Registro Rápido</Text>
+          <TextInput
+            style={styles.aiInput}
+            placeholder="Ej: Cena con amigos 45 euros"
+            value={naturalText}
+            onChangeText={setNaturalText}
+            placeholderTextColor="#9CA3AF"
+          />
+          <TouchableOpacity 
+            style={styles.aiButton} 
+            onPress={handleAnalyze}
+            disabled={isAnalyzing}
+          >
+            {isAnalyzing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.aiButtonText}>Analizar con Gemini</Text>
+            )}
+          </TouchableOpacity>
+        </View>
 
-        {/* INPUT: CATEGORÍA */}
-        <Text style={styles.label}>Categoría</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ej: Comida, Transporte..."
-          value={category}
-          onChangeText={setCategory}
-        />
+        {/* --- SECCIÓN FORMULARIO --- */}
+        <View style={styles.formSection}>
+          <Text style={styles.sectionLabel}>Confirmar Datos</Text>
+          
+          <View style={styles.row}>
+            <View style={{flex: 1, marginRight: 10}}>
+              <Text style={styles.label}>Cantidad</Text>
+              <TextInput
+                style={styles.input}
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+                placeholder="0.00"
+              />
+            </View>
+            <View style={{flex: 1}}>
+              <Text style={styles.label}>Categoría</Text>
+              <TextInput
+                style={styles.input}
+                value={category}
+                onChangeText={setCategory}
+                placeholder="Categoría"
+              />
+            </View>
+          </View>
 
-        {/* INPUT: DESCRIPCIÓN */}
-        <Text style={styles.label}>Descripción (Opcional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ej: Menú del día"
-          value={description}
-          onChangeText={setDescription}
-        />
+          <Text style={styles.label}>Descripción</Text>
+          <TextInput
+            style={styles.input}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Detalles..."
+          />
 
-        {/* BOTÓN GUARDAR */}
-        <TouchableOpacity 
-          style={[styles.button, loading && styles.buttonDisabled]} 
-          onPress={handleSave}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Guardando..." : "Guardar Gasto"}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.saveButton, loading && styles.disabledButton]} 
+            onPress={handleSave}
+            disabled={loading}
+          >
+            <Text style={styles.saveButtonText}>
+              {loading ? "Guardando..." : "Guardar Gasto"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </KeyboardAvoidingView>
   );
 }
 
-// --- ESTILOS (Look & Feel moderno) ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6', // Gris muy suave
+    backgroundColor: '#E5E7EB',
     justifyContent: 'center',
-    padding: 20,
+    padding: 16,
   },
-  formContainer: {
+  card: {
     backgroundColor: 'white',
-    padding: 24,
-    borderRadius: 16,
+    borderRadius: 20,
+    padding: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
   },
-  title: {
-    fontSize: 24,
+  headerTitle: {
+    fontSize: 28,
     fontWeight: '800',
-    color: '#1F2937',
-    marginBottom: 24,
+    color: '#111827',
     textAlign: 'center',
+    marginBottom: 24,
+  },
+  // Estilos IA
+  aiSection: {
+    backgroundColor: '#EEF2FF', // Azul muy claro
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  aiInput: {
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 16,
+    color: '#374151',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  aiButton: {
+    backgroundColor: '#4F46E5', // Indigo
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  aiButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  // Estilos Formulario
+  formSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 16,
+  },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 12,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
     color: '#4B5563',
-    marginBottom: 8,
-    marginTop: 8,
+    marginBottom: 4,
+    fontWeight: '600',
   },
   input: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
     fontSize: 16,
     color: '#111827',
+    marginBottom: 12,
   },
-  button: {
-    backgroundColor: '#2563EB', // Azul profesional
-    paddingVertical: 14,
-    borderRadius: 8,
-    marginTop: 24,
+  saveButton: {
+    backgroundColor: '#10B981', // Verde Esmeralda
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
     alignItems: 'center',
+    shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  buttonDisabled: {
-    backgroundColor: '#93C5FD',
+  disabledButton: {
+    backgroundColor: '#6EE7B7',
   },
-  buttonText: {
+  saveButtonText: {
     color: 'white',
-    fontSize: 16,
     fontWeight: 'bold',
+    fontSize: 18,
   },
 });
