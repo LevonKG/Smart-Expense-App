@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -9,7 +9,9 @@ import {
   Alert, 
   KeyboardAvoidingView, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  FlatList, 
+  SafeAreaView
 } from 'react-native';
 import axios from 'axios';
 
@@ -18,262 +20,267 @@ export default function App() {
   const API_URL = "http://192.168.1.37:8000"; 
 
   // --- ESTADO ---
-  // Input para la IA
   const [naturalText, setNaturalText] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  // Inputs del Formulario Final
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const [expenses, setExpenses] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // --- FUNCIÓN: MAGIA IA ---
+  // --- CARGAR DATOS AL INICIO ---
+  useEffect(() => {
+    fetchExpenses();
+  }, []);
+
+  // --- OBTENER GASTOS DEL BACKEND ---
+  const fetchExpenses = async () => {
+    setRefreshing(true);
+    try {
+      const response = await axios.get(`${API_URL}/expenses/`);
+      // Invertimos el array para ver los más nuevos arriba
+      setExpenses(response.data.reverse());
+    } catch (error) {
+      console.error("Error cargando gastos:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // --- INTELIGENCIA ARTIFICIAL ---
   const handleAnalyze = async () => {
     if (!naturalText.trim()) return;
-
     setIsAnalyzing(true);
     try {
-      console.log("Enviando a IA:", naturalText);
-      const response = await axios.post(`${API_URL}/analyze/`, {
-        text: naturalText
-      });
-
+      const response = await axios.post(`${API_URL}/analyze/`, { text: naturalText });
       const data = response.data;
-      console.log("Respuesta IA:", data);
-
       if (data.amount) setAmount(data.amount.toString());
       if (data.category) setCategory(data.category);
       if (data.description) setDescription(data.description);
-
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error IA", "No pude entender el gasto via red.");
+      Alert.alert("Error IA", "No se pudo conectar con el cerebro digital.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // --- FUNCIÓN: GUARDAR EN BASE DE DATOS ---
+  // --- GUARDAR ---
   const handleSave = async () => {
-    if (!amount || !category) {
-      Alert.alert("Faltan datos", "Revisa que haya cantidad y categoría");
-      return;
-    }
-
+    if (!amount || !category) return Alert.alert("Faltan datos");
     setLoading(true);
     try {
-      const expenseData = {
+      await axios.post(`${API_URL}/expenses/`, {
         amount: parseFloat(amount),
         category: category,
         description: description,
-        user_id: "usuario_demo_ia",
+        user_id: "demo_user",
         receipt_url: null
-      };
-
-      const response = await axios.post(`${API_URL}/expenses/`, expenseData);
+      });
       
-      Alert.alert("¡Guardado! ✅", `ID: ${response.data.id} guardado en la nube.`);
-      
+      // Limpiar formulario
       setNaturalText('');
       setAmount('');
       setCategory('');
       setDescription('');
+      
+      // RECARGAR LA LISTA AUTOMÁTICAMENTE
+      fetchExpenses(); 
+      Alert.alert("¡Guardado!", "Tu dashboard ha sido actualizado.");
 
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Fallo al guardar en Supabase");
+      Alert.alert("Error", "Fallo al guardar");
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.container}
-    >
-      <View style={styles.card}>
-        <Text style={styles.headerTitle}>Smart Expense 🧠</Text>
-
-        {/* --- SECCIÓN IA --- */}
-        <View style={styles.aiSection}>
-          <Text style={styles.sectionLabel}>✨ Registro Rápido</Text>
-          <TextInput
-            style={styles.aiInput}
-            placeholder="Ej: Cena con amigos 45 euros"
-            value={naturalText}
-            onChangeText={setNaturalText}
-            placeholderTextColor="#9CA3AF"
-          />
-          <TouchableOpacity 
-            style={styles.aiButton} 
-            onPress={handleAnalyze}
-            disabled={isAnalyzing}
-          >
-            {isAnalyzing ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.aiButtonText}>Analizar con Gemini</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* --- SECCIÓN FORMULARIO --- */}
-        <View style={styles.formSection}>
-          <Text style={styles.sectionLabel}>Confirmar Datos</Text>
-          
-          <View style={styles.row}>
-            <View style={{flex: 1, marginRight: 10}}>
-              <Text style={styles.label}>Cantidad</Text>
-              <TextInput
-                style={styles.input}
-                value={amount}
-                onChangeText={setAmount}
-                keyboardType="numeric"
-                placeholder="0.00"
-              />
-            </View>
-            <View style={{flex: 1}}>
-              <Text style={styles.label}>Categoría</Text>
-              <TextInput
-                style={styles.input}
-                value={category}
-                onChangeText={setCategory}
-                placeholder="Categoría"
-              />
-            </View>
-          </View>
-
-          <Text style={styles.label}>Descripción</Text>
-          <TextInput
-            style={styles.input}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Detalles..."
-          />
-
-          <TouchableOpacity 
-            style={[styles.saveButton, loading && styles.disabledButton]} 
-            onPress={handleSave}
-            disabled={loading}
-          >
-            <Text style={styles.saveButtonText}>
-              {loading ? "Guardando..." : "Guardar Gasto"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+  // --- COMPONENTE PARA CADA FILA DE LA LISTA ---
+  const renderExpenseItem = ({ item }) => (
+    <View style={styles.expenseItem}>
+      <View style={styles.expenseLeft}>
+        <Text style={styles.expenseCategory}>{item.category}</Text>
+        <Text style={styles.expenseDesc}>{item.description || "Sin detalles"}</Text>
       </View>
-      <StatusBar style="dark" />
-    </KeyboardAvoidingView>
+      <View>
+        <Text style={styles.expenseAmount}>- {item.amount.toFixed(2)} €</Text>
+        <Text style={styles.expenseDate}>
+            {new Date(item.date).toLocaleDateString()}
+        </Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{flex: 1}}
+      >
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Smart Expense 📊</Text>
+        </View>
+
+        {/* LISTA PRINCIPAL (Scrollable) */}
+        <FlatList
+          data={expenses}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderExpenseItem}
+          contentContainerStyle={styles.listContent}
+          refreshing={refreshing}
+          onRefresh={fetchExpenses} 
+          ListHeaderComponent={
+            <View>
+              {/* SECCIÓN IA */}
+              <View style={styles.aiSection}>
+                <TextInput
+                  style={styles.aiInput}
+                  placeholder="✨ Cuéntame tu gasto..."
+                  value={naturalText}
+                  onChangeText={setNaturalText}
+                />
+                <TouchableOpacity style={styles.aiButton} onPress={handleAnalyze}>
+                  {isAnalyzing ? <ActivityIndicator color="#fff"/> : <Text style={styles.aiButtonText}>🪄 Analizar</Text>}
+                </TouchableOpacity>
+              </View>
+
+              {/* SECCIÓN EDICIÓN MANUAL */}
+              <View style={styles.manualForm}>
+                <View style={styles.row}>
+                  <TextInput 
+                    style={[styles.input, {flex: 0.4}]} 
+                    value={amount} 
+                    onChangeText={setAmount} 
+                    placeholder="0.00 €" 
+                    keyboardType="numeric"
+                  />
+                  <TextInput 
+                    style={[styles.input, {flex: 0.6, marginLeft: 10}]} 
+                    value={category} 
+                    onChangeText={setCategory} 
+                    placeholder="Categoría" 
+                  />
+                </View>
+                <TextInput 
+                  style={styles.input} 
+                  value={description} 
+                  onChangeText={setDescription} 
+                  placeholder="Descripción" 
+                />
+                
+                <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                  <Text style={styles.saveButtonText}>{loading ? "Guardando..." : "Guardar Gasto"}</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.historyTitle}>Últimos Movimientos</Text>
+            </View>
+          }
+        />
+      </KeyboardAvoidingView>
+      <StatusBar style="auto" />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E5E7EB',
-    justifyContent: 'center',
-    padding: 16,
+    backgroundColor: '#F3F4F6',
+    paddingTop: Platform.OS === "android" ? 30 : 0
   },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 20,
+  header: {
     padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB'
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#111827',
-    textAlign: 'center',
-    marginBottom: 24,
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#111827'
   },
-  // Estilos IA
-  aiSection: {
-    backgroundColor: '#EEF2FF', // Azul muy claro
+  listContent: {
     padding: 16,
+    paddingBottom: 40
+  },
+  // IA Styles
+  aiSection: {
+    backgroundColor: '#EEF2FF',
+    padding: 15,
     borderRadius: 12,
-    marginBottom: 24,
-    borderWidth: 1,
+    marginBottom: 20,
     borderColor: '#C7D2FE',
+    borderWidth: 1
   },
   aiInput: {
     backgroundColor: 'white',
     padding: 12,
     borderRadius: 8,
-    fontSize: 16,
-    color: '#374151',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
+    marginBottom: 10,
+    fontSize: 16
   },
   aiButton: {
-    backgroundColor: '#4F46E5', // Indigo
+    backgroundColor: '#4F46E5',
     padding: 12,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
-  aiButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
+  aiButtonText: { color: 'white', fontWeight: 'bold' },
+  // Form Styles
+  manualForm: {
+    backgroundColor: 'white',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 25,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2
   },
-  // Estilos Formulario
-  formSection: {
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    paddingTop: 16,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#6B7280',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  row: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 12,
-    color: '#4B5563',
-    marginBottom: 4,
-    fontWeight: '600',
-  },
+  row: { flexDirection: 'row', marginBottom: 10 },
   input: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#E5E7EB',
+    padding: 12,
     borderRadius: 8,
-    padding: 10,
-    fontSize: 16,
-    color: '#111827',
-    marginBottom: 12,
+    marginBottom: 10,
+    fontSize: 16
   },
   saveButton: {
-    backgroundColor: '#10B981', // Verde Esmeralda
+    backgroundColor: '#10B981',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  saveButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  // History Styles
+  historyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 10,
+    marginLeft: 5
+  },
+  expenseItem: {
+    backgroundColor: 'white',
     padding: 16,
     borderRadius: 12,
-    marginTop: 8,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: "#10B981",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1
   },
-  disabledButton: {
-    backgroundColor: '#6EE7B7',
-  },
-  saveButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
+  expenseLeft: { flex: 1 },
+  expenseCategory: { fontWeight: 'bold', fontSize: 16, color: '#1F2937' },
+  expenseDesc: { color: '#6B7280', fontSize: 14 },
+  expenseAmount: { fontWeight: 'bold', fontSize: 16, color: '#DC2626' }, // Rojo para gastos
+  expenseDate: { fontSize: 12, color: '#9CA3AF', textAlign: 'right', marginTop: 4 }
 });
