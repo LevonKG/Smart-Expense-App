@@ -12,3 +12,7 @@ mobile/.expo/
 # --- Sistema Operativo ---
 .DS_Store
 Thumbs.db
+
+
+# --- Archivos de Base de Datos ---
+db.txt
