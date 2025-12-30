@@ -1,31 +1,36 @@
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware  # <--- IMPORTANTE: Importar esto
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Dict
 
 from database import engine, SessionLocal, Base
 import models
 import schemas
+import ai_service
 
+# Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Smart-Expense API")
 
-# Esto permite que tu App móvil (o web) hable con el servidor sin bloqueos de seguridad.
+# --- CONFIGURACIÓN DE CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permitir a CUALQUIER origen conectarse (ok para desarrollo)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Permitir todos los métodos (GET, POST, etc.)
-    allow_headers=["*"],  # Permitir todos los headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# --- DEPENDENCIA DB ---
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+# --- ENDPOINTS ---
 
 @app.get("/")
 def read_root() -> Dict[str, str]:
@@ -34,6 +39,26 @@ def read_root() -> Dict[str, str]:
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     return {"status": "ok"}
+
+@app.post("/analyze/")
+def analyze_expense(raw_text: Dict[str, str]):
+    """
+    Recibe {"text": "..."} y devuelve los datos extraídos por Gemini.
+    """
+    text = raw_text.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="Texto vacío")
+    
+    print(f"📩 Recibido para IA: {text}")
+    
+    try:
+        # Llamamos al servicio de IA
+        data = ai_service.analyze_expense_text(text)
+        print(f"🤖 Respuesta IA: {data}")
+        return data
+    except Exception as e:
+        print(f"❌ Error interno IA: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/expenses/", response_model=schemas.ExpenseResponse)
 def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db)):
